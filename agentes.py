@@ -60,7 +60,7 @@ VERDICTO: <tu conclusión final>"""
 
 # --- INICIALIZACIÓN ---
 # Usando el modelo Gemini
-llm = ChatGoogleGenerativeAI(model='gemini-1.5-flash')
+llm = ChatGoogleGenerativeAI(model='gemini-3-flash-preview')
 
 investigator_agent = create_agent(llm, tools, investigator_template)
 analyst_agent = create_agent(llm, [], analyst_template)
