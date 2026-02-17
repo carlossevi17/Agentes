@@ -2,6 +2,8 @@ import streamlit as st
 import os
 import functools
 from typing import Annotated, Literal, TypedDict
+
+# Importaciones de LangChain actualizadas
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.messages import HumanMessage, BaseMessage, AiMessage
