@@ -1,7 +1,5 @@
 streamlit
-langgraph>=0.2.16
-langchain-google-genai>=2.0.0
-langchain-community>=0.3.0
-langchain-core>=0.3.0
-langchain-tavily>=0.1.0
-tavily-python>=0.5.0
+langchain-google-genai
+langchain-community
+langgraph
+tavily-python
