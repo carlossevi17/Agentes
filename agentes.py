@@ -3,78 +3,74 @@ import os
 import functools
 from typing import Annotated, Literal, TypedDict
 
-# Importaciones críticas
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain_core.messages import HumanMessage, BaseMessage, AiMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langgraph.graph import END, StateGraph
-from langgraph.graph.message import add_messages
-from langgraph.prebuilt import ToolNode
+# Intentar importar con manejo de errores para diagnóstico
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain_community.tools.tavily_search import TavilySearchResults
+    from langchain_core.messages import HumanMessage, BaseMessage
+    from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+    from langgraph.graph import END, StateGraph
+    from langgraph.graph.message import add_messages
+    from langgraph.prebuilt import ToolNode
+except ImportError as e:
+    st.error(f"Falta una librería: {e}. Asegúrate de que 'requirements.txt' esté en la raíz de tu repo 'agentes'.")
+    st.stop()
 
-# --- CONFIGURACIÓN UI ---
-st.set_page_config(page_title="F1 Paddock AI", page_icon="🏎️")
-st.title("🏎️ F1 Paddock Intelligence")
+st.set_page_config(page_title="F1 Reporter", page_icon="🏎️")
+st.title("🏎️ F1 Paddock Agent")
 
-# Gestión de claves mediante la barra lateral
+# Configuración de API Keys en el sidebar
 with st.sidebar:
-    st.header("🔑 API Keys")
     google_key = st.text_input("Google API Key", type="password")
     tavily_key = st.text_input("Tavily API Key", type="password", value="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")
+    if google_key: os.environ["GOOGLE_API_KEY"] = google_key
+    if tavily_key: os.environ["TAVILY_API_KEY"] = tavily_key
 
-    if google_key:
-        os.environ["GOOGLE_API_KEY"] = google_key
-    if tavily_key:
-        os.environ["TAVILY_API_KEY"] = tavily_key
-
-# --- LÓGICA DEL GRAFO ---
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
-def create_agent(llm, tools, system_message: str):
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_message),
-        MessagesPlaceholder(variable_name="messages"),
-    ])
-    if tools:
-        return prompt | llm.bind_tools(tools)
-    return prompt | llm
-
-# Lógica de decisión
-def should_continue(state: AgentState):
-    last_message = state['messages'][-1]
-    if last_message.tool_calls:
-        return "tools"
-    return "analyst"
-
-# --- CONSTRUCCIÓN ---
 if google_key and tavily_key:
-    llm = ChatGoogleGenerativeAI(model='gemini-3-flash-preview')
+    llm = ChatGoogleGenerativeAI(model='gemini-1.5-flash')
     tools = [TavilySearchResults(max_results=3)]
     
-    # Agentes especializados
-    reporter = create_agent(llm, tools, "Eres un reportero de F1. Busca noticias actuales sobre pilotos, equipos y rumores.")
-    analyst = create_agent(llm, [], "Eres un analista técnico de F1. Analiza cómo la noticia afecta al rendimiento o al mundial.")
-    
+    # Grafo simple de F1
     workflow = StateGraph(AgentState)
-    workflow.add_node("reporter", lambda state: {"messages": [reporter.invoke(state)]})
-    workflow.add_node("tools", ToolNode(tools))
-    workflow.add_node("analyst", lambda state: {"messages": [analyst.invoke(state)]})
+    
+    # Nodo Reportero
+    def reporter_node(state):
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "Eres un reportero de F1. Usa herramientas para buscar noticias."),
+            MessagesPlaceholder(variable_name="messages"),
+        ])
+        chain = prompt | llm.bind_tools(tools)
+        return {"messages": [chain.invoke(state)]}
 
+    workflow.add_node("reporter", reporter_node)
+    workflow.add_node("tools", ToolNode(tools))
+    
+    # Nodo Editor
+    def editor_node(state):
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "Eres el editor. Resume la noticia de F1 de forma épica."),
+            MessagesPlaceholder(variable_name="messages"),
+        ])
+        return {"messages": [prompt.invoke(state | {"messages": state["messages"][-2:]})]}
+
+    workflow.add_node("editor", editor_node)
+
+    # Flujo
     workflow.set_entry_point("reporter")
-    workflow.add_conditional_edges("reporter", should_continue)
+    workflow.add_conditional_edges("reporter", lambda x: "tools" if x["messages"][-1].tool_calls else "editor")
     workflow.add_edge("tools", "reporter")
-    workflow.add_edge("analyst", END)
+    workflow.add_edge("editor", END)
 
     app = workflow.compile()
 
-    # --- INTERACCIÓN ---
-    pregunta = st.text_input("Pregunta al Paddock:", placeholder="¿Qué se sabe del fichaje de Newey?")
-
-    if st.button("Lanzar Reporte"):
-        with st.spinner("Buscando en el pitlane..."):
-            result = app.invoke({"messages": [HumanMessage(content=pregunta)]})
-            st.markdown("### 🏁 Resultado de la Investigación")
-            st.write(result['messages'][-1].content)
+    # UI
+    user_query = st.text_input("Pregunta sobre F1:")
+    if st.button("Buscar"):
+        with st.spinner("Consultando fuentes..."):
+            final = app.invoke({"messages": [HumanMessage(content=user_query)]})
+            st.markdown(final["messages"][-1].content)
 else:
-    st.warning("Introduce tus API Keys en la barra lateral para arrancar motores.")
+    st.info("Introduce las llaves en el sidebar.")
