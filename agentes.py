@@ -30,7 +30,7 @@ class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
 if google_key and tavily_key:
-    llm = ChatGoogleGenerativeAI(model='gemini-1.5-flash')
+    llm = ChatGoogleGenerativeAI(model='gemini-3-flash-preview')
     tools = [TavilySearchResults(max_results=3)]
     
     # Grafo simple de F1
