@@ -45,7 +45,7 @@ def call_model(state, llm, system_prompt, tools=None):
 # --- CONSTRUCCIÓN DEL GRAFO ---
 if google_key and tavily_key:
     # Usamos Gemini 1.5 Flash por estabilidad
-    llm = ChatGoogleGenerativeAI(model='gemini-3-flash-preview', temperature=0.1)
+    llm = ChatGoogleGenerativeAI(model='gemini-2.5-flash', temperature=0.1)
     search_tool = TavilySearchResults(max_results=3)
     
     workflow = StateGraph(AgentState)
