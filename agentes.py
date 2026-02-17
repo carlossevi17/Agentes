@@ -49,7 +49,7 @@ def should_continue(state: AgentState):
 
 # --- CONSTRUCCIÓN ---
 if google_key and tavily_key:
-    llm = ChatGoogleGenerativeAI(model='gemini-1.5-flash')
+    llm = ChatGoogleGenerativeAI(model='gemini-3-flash-preview')
     tools = [TavilySearchResults(max_results=3)]
     
     # Agentes especializados
