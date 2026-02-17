@@ -52,7 +52,7 @@ def should_search(state: AgentState):
 
 # --- CONSTRUCCIÓN DEL GRAFO ---
 if google_key and tavily_key:
-    llm = ChatGoogleGenerativeAI(model='gemini-1.5-flash')
+    llm = ChatGoogleGenerativeAI(model='gemini-3-flash-preview')
     tools = [TavilySearchResults(max_results=5)]
     
     # Agentes
