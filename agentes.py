@@ -3,7 +3,7 @@ import os
 import functools
 from typing import Annotated, Literal, TypedDict
 
-# Importaciones de LangChain actualizadas
+# Importaciones críticas
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.messages import HumanMessage, BaseMessage, AiMessage
@@ -12,23 +12,22 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="F1 AI News Agent", page_icon="🏎️")
+# --- CONFIGURACIÓN UI ---
+st.set_page_config(page_title="F1 Paddock AI", page_icon="🏎️")
 st.title("🏎️ F1 Paddock Intelligence")
-st.markdown("Agente autónomo de noticias de Fórmula 1")
 
-# --- BARRA LATERAL PARA LLAVES ---
+# Gestión de claves mediante la barra lateral
 with st.sidebar:
-    st.header("Configuración")
+    st.header("🔑 API Keys")
     google_key = st.text_input("Google API Key", type="password")
     tavily_key = st.text_input("Tavily API Key", type="password", value="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")
-    
+
     if google_key:
         os.environ["GOOGLE_API_KEY"] = google_key
     if tavily_key:
         os.environ["TAVILY_API_KEY"] = tavily_key
 
-# --- LÓGICA DE LANGGRAPH ---
+# --- LÓGICA DEL GRAFO ---
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
@@ -41,69 +40,41 @@ def create_agent(llm, tools, system_message: str):
         return prompt | llm.bind_tools(tools)
     return prompt | llm
 
-# Definición de Nodos
-def agent_node(state, agent, name):
-    result = agent.invoke(state)
-    return {"messages": [result]}
-
-def should_search(state: AgentState):
+# Lógica de decisión
+def should_continue(state: AgentState):
     last_message = state['messages'][-1]
     if last_message.tool_calls:
         return "tools"
-    return "strategist"
+    return "analyst"
 
-# --- CONSTRUCCIÓN DEL GRAFO ---
+# --- CONSTRUCCIÓN ---
 if google_key and tavily_key:
-    llm = ChatGoogleGenerativeAI(model='gemini-3-flash-preview')
-    tools = [TavilySearchResults(max_results=5)]
+    llm = ChatGoogleGenerativeAI(model='gemini-1.5-flash')
+    tools = [TavilySearchResults(max_results=3)]
     
-    # Agentes
-    reporter = create_agent(llm, tools, "Eres un reportero de F1 en el pitlane. Busca las últimas noticias, rumores y tiempos. Sé rápido y preciso.")
-    strategist = create_agent(llm, [], "Eres un estratega de F1. Analiza las noticias del reportero y explica cómo afectan al campeonato o a la carrera.")
-    editor = create_agent(llm, [], "Eres el Editor Jefe de una revista de F1. Escribe un artículo breve, con un titular impactante y estilo deportivo.")
-
-    # Nodos del flujo
+    # Agentes especializados
+    reporter = create_agent(llm, tools, "Eres un reportero de F1. Busca noticias actuales sobre pilotos, equipos y rumores.")
+    analyst = create_agent(llm, [], "Eres un analista técnico de F1. Analiza cómo la noticia afecta al rendimiento o al mundial.")
+    
     workflow = StateGraph(AgentState)
-    workflow.add_node("reporter", functools.partial(agent_node, agent=reporter, name="Reportero"))
+    workflow.add_node("reporter", lambda state: {"messages": [reporter.invoke(state)]})
     workflow.add_node("tools", ToolNode(tools))
-    workflow.add_node("strategist", functools.partial(agent_node, agent=strategist, name="Estratega"))
-    workflow.add_node("editor", functools.partial(agent_node, agent=editor, name="Editor"))
+    workflow.add_node("analyst", lambda state: {"messages": [analyst.invoke(state)]})
 
     workflow.set_entry_point("reporter")
-    workflow.add_conditional_edges("reporter", should_search)
+    workflow.add_conditional_edges("reporter", should_continue)
     workflow.add_edge("tools", "reporter")
-    workflow.add_edge("strategist", "editor")
-    workflow.add_edge("editor", END)
+    workflow.add_edge("analyst", END)
 
     app = workflow.compile()
 
-    # --- INTERFAZ STREAMLIT ---
-    user_input = st.text_input("¿Qué quieres saber de la F1?", placeholder="Ej: Rumores sobre el asiento de Red Bull")
+    # --- INTERACCIÓN ---
+    pregunta = st.text_input("Pregunta al Paddock:", placeholder="¿Qué se sabe del fichaje de Newey?")
 
-    if st.button("Investigar"):
-        if user_input:
-            st.session_state.messages = [HumanMessage(content=user_input)]
-            
-            with st.status("Analizando el Paddock...", expanded=True) as status:
-                for event in app.stream({"messages": st.session_state.messages}, stream_mode="values"):
-                    last_msg = event['messages'][-1]
-                    if isinstance(last_msg, AiMessage):
-                        if last_msg.tool_calls:
-                            st.write("🔍 Buscando en telemetría y noticias...")
-                        else:
-                            st.write(f"✅ {last_msg.content[:50]}...")
-                status.update(label="¡Investigación completada!", state="complete", expanded=False)
-
-            # Mostrar resultado final
-            final_content = event['messages'][-1].content
-            st.markdown("---")
-            st.markdown(final_content)
-        else:
-            st.warning("Escribe algo primero.")
+    if st.button("Lanzar Reporte"):
+        with st.spinner("Buscando en el pitlane..."):
+            result = app.invoke({"messages": [HumanMessage(content=pregunta)]})
+            st.markdown("### 🏁 Resultado de la Investigación")
+            st.write(result['messages'][-1].content)
 else:
-    st.info("Por favor, introduce tus API Keys en la barra lateral para empezar.")
-
-# --- PRUEBA ---
-inputs = {"messages": [HumanMessage(content="El misterio de las Caras de Bélmez")]}
-for event in graph.stream(inputs, stream_mode="values"):
-    event['messages'][-1].pretty_print()
+    st.warning("Introduce tus API Keys en la barra lateral para arrancar motores.")
