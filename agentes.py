@@ -1,95 +1,95 @@
 import streamlit as st
 import os
-import functools
 from typing import Annotated, TypedDict
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain_core.messages import HumanMessage, BaseMessage, AiMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langgraph.graph import END, StateGraph
-from langgraph.graph.message import add_messages
-from langgraph.prebuilt import ToolNode
+from langgraph.graph import StateGraph, END
 
-# --- CONFIGURACIÓN DE INTERFAZ ---
-st.set_page_config(page_title="F1 AI Reporter", page_icon="🏎️", layout="wide")
-st.title("🏎️ F1 Paddock Intelligence")
+# 1. Configuración de la Página
+st.set_page_config(page_title="IA 4 DUMMIES", page_icon="🤖", layout="wide")
+st.title("🤖 IA 4 DUMMIES")
+st.markdown("### Las noticias de IA contadas como cuentos para jóvenes")
 
-# Barra lateral para llaves
+# 2. Sidebar: Configuración de API Keys
 with st.sidebar:
     st.header("🔑 Configuración")
-    google_key = st.text_input("Google API Key", type="password")
-    tavily_key = st.text_input("Tavily API Key", type="password", value="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")
+    google_key = st.text_input("Google API Key:", type="password")
+    tavily_key = st.text_input("Tavily API Key:", type="password")
     
-    if google_key: os.environ["GOOGLE_API_KEY"] = google_key.strip()
-    if tavily_key: os.environ["TAVILY_API_KEY"] = tavily_key.strip()
+    if google_key and tavily_key:
+        # Seteo inmediato en el entorno para evitar errores de validación del LLM
+        os.environ["GOOGLE_API_KEY"] = google_key
+        os.environ["TAVILY_API_KEY"] = tavily_key
+        st.success("✅ APIs configuradas correctamente")
 
-# --- DEFINICIÓN DEL ESTADO ---
+# 3. Definición del Estado y el Grafo
 class AgentState(TypedDict):
-    messages: Annotated[list[BaseMessage], add_messages]
+    question: str
+    search_results: str
+    final_story: str
 
-# --- NODOS ---
-def call_model(state, llm, system_prompt, tools=None):
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        MessagesPlaceholder(variable_name="messages"),
-    ])
-    chain = prompt | (llm.bind_tools(tools) if tools else llm)
-    response = chain.invoke(state)
-    return {"messages": [response]}
+def tool_search_news(state: AgentState):
+    """Busca en tiempo real usando Tavily"""
+    # Se inicializa dentro del nodo para asegurar que use la API Key del sidebar
+    search = TavilySearchResults(max_results=3)
+    results = search.invoke(state["question"])
+    return {"search_results": str(results)}
 
-# --- CONSTRUCCIÓN DEL GRAFO ---
+def generator_story(state: AgentState):
+    """Transforma las noticias en un cuento simple"""
+    llm = ChatGoogleGenerativeAI(model='gemini-2.5-flash')
+    
+    prompt = f"""
+    Eres un narrador experto que explica tecnología a jovencitos de 10 años.
+    Usa términos muy simples, metáforas y cuenta una historia emocionante.
+    
+    CONTEXTO DE NOTICIAS:
+    {state['search_results']}
+    
+    TEMA A EXPLICAR:
+    {state['question']}
+    
+    INSTRUCCIÓN: Explica qué ha pasado como si fuera un cuento corto.
+    """
+    
+    response = llm.invoke(prompt)
+    return {"final_story": response.content}
+
+# Construcción del flujo
+workflow = StateGraph(AgentState)
+workflow.add_node("buscador", tool_search_news)
+workflow.add_node("escritor", generator_story)
+
+workflow.set_entry_point("buscador")
+workflow.add_edge("buscador", "escritor")
+workflow.add_edge("escritor", END)
+
+app_graph = workflow.compile()
+
+# 4. Interfaz de Usuario (Input y Ejecución)
 if google_key and tavily_key:
-    # IMPORTANTE: Cambiado a gemini-1.5-flash para estabilidad total
-    llm = ChatGoogleGenerativeAI(model='gemini-flash-latest', temperature=0.2)
-    search_tool = TavilySearchResults(max_results=3)
-    
-    workflow = StateGraph(AgentState)
-    
-    # Reportero: Obligado a investigar
-    reporter_node = lambda state: call_model(
-        state, llm, 
-        "Eres un reportero de F1. DEBES usar la herramienta de búsqueda para obtener datos reales y actuales antes de responder.", 
-        [search_tool]
-    )
-    
-    # Editor: Sintetiza el reporte final
-    editor_node = lambda state: call_model(
-        state, llm, 
-        "Eres el editor jefe. Toma la información encontrada y escribe un artículo emocionante con titular."
-    )
+    pregunta = st.text_input("¿Qué quieres entender hoy?", 
+                             placeholder="Ej: ¿Qué es Sora de OpenAI?")
 
-    workflow.add_node("reporter", reporter_node)
-    workflow.add_node("tools", ToolNode([search_tool]))
-    workflow.add_node("editor", editor_node)
+    if pregunta:
+        with st.spinner("🕵️‍♀️ Buscando noticias y escribiendo tu historia..."):
+            try:
+                # Ejecución del grafo
+                inputs = {"question": pregunta}
+                resultado = app_graph.invoke(inputs)
+                
+                # Resultado principal
+                st.markdown("---")
+                st.subheader("📖 Tu cuento de IA:")
+                st.write(resultado["final_story"])
+                
+                # Trazabilidad técnica
+                with st.expander("🛠️ Ver datos técnicos (Fuentes de Tavily)"):
+                    st.code(resultado["search_results"], language="text")
+            
+            except Exception as e:
+                st.error(f"Hubo un error al generar la historia: {str(e)}")
+                st.info("Revisa que tus API Keys sean correctas y tengan créditos.")
 
-    # Lógica de navegación
-    workflow.set_entry_point("reporter")
-    workflow.add_conditional_edges("reporter", lambda x: "tools" if x["messages"][-1].tool_calls else "editor")
-    workflow.add_edge("tools", "reporter")
-    workflow.add_edge("editor", END)
-
-    app = workflow.compile()
-
-    # --- FLUJO DE USUARIO ---
-    pregunta = st.text_input("¿Qué quieres saber de la F1?", placeholder="Ej: ¿Cómo va el mundial de constructores?")
-
-    if st.button("🏁 Arrancar Investigación"):
-        if not pregunta:
-            st.warning("Por favor, escribe una pregunta.")
-        else:
-            with st.status("🛠️ Investigando en el Paddock...", expanded=True) as status:
-                try:
-                    # Ejecutamos el grafo
-                    final_state = app.invoke({"messages": [HumanMessage(content=pregunta)]})
-                    
-                    status.update(label="✅ Reporte listo", state="complete")
-                    
-                    # Buscamos el último mensaje del Editor para mostrarlo
-                    st.markdown("---")
-                    st.subheader("📊 Reporte Oficial del Editor")
-                    st.write(final_state["messages"][-1].content)
-                    
-                except Exception as e:
-                    st.error(f"Hubo un fallo en la carrera: {e}")
 else:
-    st.info("⚠️ Introduce tus API Keys en el menú de la izquierda.")
+    st.warning("👈 Introduce tus claves de Google y Tavily en el menú de la izquierda para empezar.")
